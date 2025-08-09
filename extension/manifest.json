@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Page Jump Search",
+  "version": "0.1.0",
+  "description": "Popup search with suggestions to jump to sections on the current page.",
+  "action": {
+    "default_title": "Search page sections",
+    "default_popup": "popup.html"
+  },
+  "permissions": ["activeTab", "tabs"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/content.js"],
+      "css": ["content/content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+} 
