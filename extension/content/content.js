@@ -21,7 +21,6 @@
     return text.slice(0, max - 1) + '…';
   }
 
-  // NEW: build comprehensive searchable text for an element (visible text, aria, title, href filename, etc.)
   function getElementSearchText(el) {
     if (!el || el.nodeType !== Node.ELEMENT_NODE) return '';
 
@@ -40,8 +39,15 @@
       if (alt) pieces.push(alt);
     }
 
-    if (el.tagName === 'A') {
-      const href = el.getAttribute('href') || '';
+    // URLs (links, embeds)
+    const urlAttrs = [];
+    if (el.tagName === 'A') urlAttrs.push(el.getAttribute('href'));
+    if (el.tagName === 'IFRAME') urlAttrs.push(el.getAttribute('src'));
+    if (el.tagName === 'EMBED') urlAttrs.push(el.getAttribute('src'));
+    if (el.tagName === 'OBJECT') urlAttrs.push(el.getAttribute('data'));
+
+    for (const href of urlAttrs) {
+      if (!href) continue;
       try {
         const u = new URL(href, location.href);
         const last = (u.pathname || '').split('/').filter(Boolean).pop() || '';
@@ -80,6 +86,28 @@
     }
   }
 
+  function indexPdfTextLayers(lastHeading) {
+    const layers = Array.from(document.querySelectorAll('.textLayer'));
+    for (const layer of layers) {
+      const text = normalizeText(layer.innerText);
+      if (!text || text.length < 20) continue;
+      const id = ensureElementId(layer);
+      let parentTitle = 'PDF';
+      const page = layer.closest('.page');
+      const pageNum = page && (page.getAttribute('data-page-number') || page.getAttribute('data-page-index'));
+      if (pageNum) parentTitle = `PDF page ${pageNum}`;
+      if (lastHeading && lastHeading._extTitle) parentTitle = lastHeading._extTitle;
+      index.push({
+        id,
+        title: text,
+        level: 'pdf',
+        node: layer,
+        parentTitle,
+        searchText: (parentTitle ? parentTitle + ' ' : '') + text,
+      });
+    }
+  }
+
   function buildIndex() {
     index = [];
     counter = 0;
@@ -92,7 +120,7 @@
         acceptNode(node) {
           if (!node.tagName) return NodeFilter.FILTER_SKIP;
           const tag = node.tagName.toLowerCase();
-          if (isHeadingElement(node) || tag === 'p' || tag === 'a') return NodeFilter.FILTER_ACCEPT;
+          if (isHeadingElement(node) || tag === 'p' || tag === 'a' || tag === 'iframe' || tag === 'embed' || tag === 'object') return NodeFilter.FILTER_ACCEPT;
           return NodeFilter.FILTER_SKIP;
         },
       }
@@ -110,44 +138,32 @@
         lastHeading = current;
         lastHeading._extTitle = title;
       } else if (tag === 'p') {
-        if (!lastHeading) continue; // only paragraphs under a heading
+        if (!lastHeading) continue;
         const text = normalizeText(current.textContent);
-        if (!text || text.length < 20) continue; // skip very short/noisy paragraphs
+        if (!text || text.length < 20) continue;
         const id = ensureElementId(current);
         const parentTitle = lastHeading._extTitle || normalizeText(lastHeading.textContent) || '';
-        index.push({
-          id,
-          title: text,
-          level: 'p',
-          node: current,
-          parentTitle,
-          searchText: (parentTitle ? parentTitle + ' ' : '') + text,
-        });
-      } else if (tag === 'a') {
-        // Index links (attachments) with rich text (visible, aria, title, href filename)
-        if (!lastHeading) continue; // associate with nearest heading/section
-        const linkText = normalizeText(getElementSearchText(current));
-        if (!linkText) continue;
+        index.push({ id, title: text, level: 'p', node: current, parentTitle, searchText: (parentTitle ? parentTitle + ' ' : '') + text });
+      } else if (tag === 'a' || tag === 'iframe' || tag === 'embed' || tag === 'object') {
+        if (!lastHeading) continue;
+        const rich = normalizeText(getElementSearchText(current));
+        if (!rich) continue;
         const id = ensureElementId(current);
         const parentTitle = lastHeading._extTitle || normalizeText(lastHeading.textContent) || '';
-        index.push({
-          id,
-          title: linkText,
-          level: 'a',
-          node: current,
-          parentTitle,
-          searchText: (parentTitle ? parentTitle + ' ' : '') + linkText,
-        });
+        const level = tag === 'a' ? 'a' : 'embed';
+        index.push({ id, title: rich, level, node: current, parentTitle, searchText: (parentTitle ? parentTitle + ' ' : '') + rich });
       }
     }
+
+    indexPdfTextLayers(lastHeading);
 
     isIndexed = true;
   }
 
   function scoreItem(queryLower, item) {
-    const base = item.level && item.level[0] === 'h' ? 5 : 0; // favor headings slightly
+    const base = item.level && (item.level[0] === 'h' || item.level === 'pdf') ? 5 : 0;
     const haystack = (item.searchText || item.title || '').toLowerCase();
-    if (!queryLower) return 1 + base; // neutral order with slight heading bias
+    if (!queryLower) return 1 + base;
     if (haystack === queryLower) return 100 + base;
     if (haystack.startsWith(queryLower)) return 80 + base;
     const idx = haystack.indexOf(queryLower);
@@ -172,8 +188,9 @@
     const sliced = (limit ? scored.slice(0, limit) : scored).map((s) => {
       const it = s.item;
       const isParagraph = it.level === 'p';
-      const isLink = it.level === 'a';
-      const title = (isParagraph || isLink)
+      const isLink = it.level === 'a' || it.level === 'embed';
+      const isPdf = it.level === 'pdf';
+      const title = (isParagraph || isLink || isPdf)
         ? ((it.parentTitle ? it.parentTitle + ' — ' : '') + truncateForDisplay(it.title))
         : it.title;
       return {
@@ -201,7 +218,6 @@
   }
 
   function scrollToId(id) {
-    // Accept either composite id (frame::id) or raw id
     let rawId = id;
     const delim = id.indexOf('::');
     if (delim > 0) rawId = id.slice(delim + 2);
