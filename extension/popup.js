@@ -34,6 +34,18 @@ function setScopeUI() {
   scopeLabel.textContent = 'Search all pages';
   searchInput.placeholder = isSiteMode ? 'Search all pages…' : 'Search this page…';
   crawlStatusEl.classList.toggle('hidden', !isSiteMode);
+  
+  // Save toggle state
+  chrome.storage.local.set({ 'toggleSiteMode': isSiteMode });
+}
+
+async function loadToggleState() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['toggleSiteMode'], (result) => {
+      const savedMode = result.toggleSiteMode;
+      resolve(savedMode !== undefined ? savedMode : false);
+    });
+  });
 }
 
 scopeToggle?.addEventListener('change', async () => {
@@ -375,7 +387,11 @@ searchInput.addEventListener('keydown', (e) => {
 });
 
 (async function init() {
+  // Load saved toggle state
+  const savedMode = await loadToggleState();
+  scopeToggle.checked = savedMode;
   setScopeUI();
+  
   await getActiveTab();
   if (isSiteMode) await ensureCrawlStarted();
   await runSearch('');
