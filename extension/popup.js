@@ -29,22 +29,59 @@ async function getActiveTabId() {
   });
 }
 
+async function getAllFrames(tabId) {
+  return new Promise((resolve) => {
+    chrome.webNavigation.getAllFrames({ tabId }, (frames) => {
+      if (chrome.runtime.lastError || !Array.isArray(frames)) {
+        resolve([]);
+        return;
+      }
+      resolve(frames);
+    });
+  });
+}
+
 async function requestSuggestions(query) {
   const tabId = await getActiveTabId();
   if (!tabId) return [];
-  return new Promise((resolve) => {
-    chrome.tabs.sendMessage(
-      tabId,
-      { type: 'PAGE_JUMP_GET_SUGGESTIONS', query, limit: MAX_RESULTS },
-      (response) => {
-        if (chrome.runtime.lastError) {
-          resolve([]);
-          return;
+  const frames = await getAllFrames(tabId);
+  if (!frames.length) return [];
+
+  const perFramePromises = frames.map((frame) => {
+    return new Promise((resolve) => {
+      chrome.tabs.sendMessage(
+        tabId,
+        { type: 'PAGE_JUMP_GET_SUGGESTIONS', query, limit: MAX_RESULTS },
+        { frameId: frame.frameId },
+        (response) => {
+          if (chrome.runtime.lastError || !response || !Array.isArray(response.suggestions)) {
+            resolve([]);
+            return;
+          }
+          resolve(response.suggestions.map((s) => ({ ...s, _frameId: frame.frameId, _frameUrl: frame.url })));
         }
-        resolve((response && response.suggestions) || []);
-      }
-    );
+      );
+    });
   });
+
+  const results = await Promise.allSettled(perFramePromises);
+  const all = [];
+  for (const r of results) {
+    if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+      all.push(...r.value);
+    }
+  }
+  // De-duplicate by id and cap results
+  const seen = new Set();
+  const deduped = [];
+  for (const item of all) {
+    if (item && !seen.has(item.id)) {
+      seen.add(item.id);
+      deduped.push(item);
+    }
+    if (deduped.length >= MAX_RESULTS) break;
+  }
+  return deduped;
 }
 
 async function goToSuggestion(index) {
@@ -52,7 +89,14 @@ async function goToSuggestion(index) {
   if (!tabId) return;
   const item = currentSuggestions[index];
   if (!item) return;
-  chrome.tabs.sendMessage(tabId, { type: 'PAGE_JUMP_SCROLL_TO', id: item.id });
+
+  const frames = await getAllFrames(tabId);
+  const target = frames.find((f) => f.url === item.frameHref || f.frameId === item._frameId);
+  if (target) {
+    chrome.tabs.sendMessage(tabId, { type: 'PAGE_JUMP_SCROLL_TO', id: item.id }, { frameId: target.frameId });
+  } else {
+    chrome.tabs.sendMessage(tabId, { type: 'PAGE_JUMP_SCROLL_TO', id: item.id });
+  }
   window.close();
 }
 
@@ -85,7 +129,6 @@ function buildHighlightedHtml(text, query) {
   }
   if (!ranges.length) return escapeHtml(text);
   ranges.sort((a, b) => a.start - b.start);
-  // merge overlaps
   const merged = [];
   for (const r of ranges) {
     if (!merged.length || r.start > merged[merged.length - 1].end) {
@@ -175,7 +218,6 @@ searchInput.addEventListener('keydown', (e) => {
   });
 });
 
-// Initialize with all headings/paragraphs
 (async function init() {
   lastQuery = '';
   const suggestions = await requestSuggestions('');

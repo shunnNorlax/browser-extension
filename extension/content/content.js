@@ -21,6 +21,44 @@
     return text.slice(0, max - 1) + '…';
   }
 
+  // NEW: build comprehensive searchable text for an element (visible text, aria, title, href filename, etc.)
+  function getElementSearchText(el) {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE) return '';
+
+    const pieces = [];
+
+    const visible = (el.innerText || el.textContent || '').trim();
+    if (visible) pieces.push(visible);
+
+    const aria = el.getAttribute('aria-label');
+    if (aria) pieces.push(aria);
+    const title = el.getAttribute('title');
+    if (title) pieces.push(title);
+
+    if (el.tagName === 'IMG') {
+      const alt = el.getAttribute('alt');
+      if (alt) pieces.push(alt);
+    }
+
+    if (el.tagName === 'A') {
+      const href = el.getAttribute('href') || '';
+      try {
+        const u = new URL(href, location.href);
+        const last = (u.pathname || '').split('/').filter(Boolean).pop() || '';
+        if (last) {
+          pieces.push(last);
+          const dot = last.lastIndexOf('.');
+          if (dot > 0) pieces.push(last.slice(0, dot));
+        }
+      } catch (_) {}
+    }
+
+    return pieces
+      .map((s) => s.replace(/\s+/g, ' '))
+      .filter(Boolean)
+      .join(' \u2003 ');
+  }
+
   function ensureElementId(el) {
     if (!el.hasAttribute(MARK_ATTR)) {
       el.setAttribute(MARK_ATTR, generateId());
@@ -32,6 +70,14 @@
     if (!node || !node.tagName) return false;
     const tag = node.tagName.toLowerCase();
     return /^h[1-6]$/.test(tag);
+  }
+
+  function getFrameKey() {
+    try {
+      return location.href;
+    } catch {
+      return 'about:blank';
+    }
   }
 
   function buildIndex() {
@@ -46,7 +92,7 @@
         acceptNode(node) {
           if (!node.tagName) return NodeFilter.FILTER_SKIP;
           const tag = node.tagName.toLowerCase();
-          if (isHeadingElement(node) || tag === 'p') return NodeFilter.FILTER_ACCEPT;
+          if (isHeadingElement(node) || tag === 'p' || tag === 'a') return NodeFilter.FILTER_ACCEPT;
           return NodeFilter.FILTER_SKIP;
         },
       }
@@ -77,6 +123,21 @@
           parentTitle,
           searchText: (parentTitle ? parentTitle + ' ' : '') + text,
         });
+      } else if (tag === 'a') {
+        // Index links (attachments) with rich text (visible, aria, title, href filename)
+        if (!lastHeading) continue; // associate with nearest heading/section
+        const linkText = normalizeText(getElementSearchText(current));
+        if (!linkText) continue;
+        const id = ensureElementId(current);
+        const parentTitle = lastHeading._extTitle || normalizeText(lastHeading.textContent) || '';
+        index.push({
+          id,
+          title: linkText,
+          level: 'a',
+          node: current,
+          parentTitle,
+          searchText: (parentTitle ? parentTitle + ' ' : '') + linkText,
+        });
       }
     }
 
@@ -91,7 +152,6 @@
     if (haystack.startsWith(queryLower)) return 80 + base;
     const idx = haystack.indexOf(queryLower);
     if (idx >= 0) return 60 - Math.min(idx, 50) + base;
-    // rough subsequence fuzzy match
     let qi = 0;
     for (let i = 0; i < haystack.length && qi < queryLower.length; i++) {
       if (haystack[i] === queryLower[qi]) qi++;
@@ -103,6 +163,7 @@
   function getSuggestions(query, limit) {
     if (!isIndexed) buildIndex();
     const q = normalizeText(query).toLowerCase();
+    const frameKey = getFrameKey();
     const scored = index
       .map((item) => ({ item, score: scoreItem(q, item) }))
       .filter((s) => s.score >= 0)
@@ -111,11 +172,14 @@
     const sliced = (limit ? scored.slice(0, limit) : scored).map((s) => {
       const it = s.item;
       const isParagraph = it.level === 'p';
-      const title = isParagraph
+      const isLink = it.level === 'a';
+      const title = (isParagraph || isLink)
         ? ((it.parentTitle ? it.parentTitle + ' — ' : '') + truncateForDisplay(it.title))
         : it.title;
       return {
-        id: it.id,
+        id: `${frameKey}::${it.id}`,
+        rawId: it.id,
+        frameHref: frameKey,
         title,
         level: it.level,
       };
@@ -137,10 +201,15 @@
   }
 
   function scrollToId(id) {
-    let el = document.querySelector(`[${MARK_ATTR}="${CSS.escape(id)}"]`);
+    // Accept either composite id (frame::id) or raw id
+    let rawId = id;
+    const delim = id.indexOf('::');
+    if (delim > 0) rawId = id.slice(delim + 2);
+
+    let el = document.querySelector(`[${MARK_ATTR}="${CSS.escape(rawId)}"]`);
     if (!el) {
       buildIndex();
-      el = document.querySelector(`[${MARK_ATTR}="${CSS.escape(id)}"]`);
+      el = document.querySelector(`[${MARK_ATTR}="${CSS.escape(rawId)}"]`);
     }
     if (el) {
       smoothScrollTo(el);
