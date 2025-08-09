@@ -8,9 +8,20 @@
   </head>
   <body>
     <div class="container">
+      <div class="scope">
+        <label class="switch">
+          <input id="scopeToggle" type="checkbox" aria-label="Toggle search scope" />
+          <span class="slider"></span>
+        </label>
+        <span id="scopeLabel" class="scope-label">Search all pages</span>
+      </div>
       <input id="searchInput" type="text" placeholder="Search this page…" autocomplete="off" autofocus />
       <ul id="suggestList" class="suggestions" role="listbox" aria-label="Page sections"></ul>
       <div id="emptyState" class="empty hidden">No matches</div>
+      <div id="crawlStatus" class="status hidden" aria-live="polite">
+        <span class="dot" aria-hidden="true"></span>
+        <span id="crawlStatusText"></span>
+      </div>
     </div>
     <script src="popup.js"></script>
   </body>

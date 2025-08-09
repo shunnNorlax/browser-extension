@@ -1,8 +1,24 @@
 .container {
-  width: 320px;
+  width: 340px;
   padding: 10px;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
 }
+
+.scope {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.scope-label { font-size: 12px; color: #555; }
+
+.switch { position: relative; display: inline-block; width: 38px; height: 22px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .2s; border-radius: 22px; }
+.slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: white; transition: .2s; border-radius: 50%; }
+input:checked + .slider { background-color: #6c8cff; }
+input:checked + .slider:before { transform: translateX(16px); }
 
 #searchInput {
   width: 100%;
@@ -67,6 +83,34 @@
   margin-top: 8px;
   color: #777;
   font-size: 13px;
+}
+
+.status {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #666;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6c8cff;
+  animation: statusPulse 1s ease-in-out infinite;
+}
+
+.status.done .dot {
+  background: #2fb344;
+  animation: none;
+}
+
+@keyframes statusPulse {
+  0% { opacity: 0.4; }
+  50% { opacity: 1; }
+  100% { opacity: 0.4; }
 }
 
 .hidden { display: none; } 
