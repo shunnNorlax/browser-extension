@@ -1,7 +1,7 @@
 // Lightweight site-scoped crawler and indexer (per-scope storage)
 // Scope: host + top-level directory from a starting URL, e.g. https://site/courses/ → only URLs under /courses/
 
-const MAX_PAGES = 60;
+const MAX_PAGES_PER_CRAWL = 60; // pages per individual crawl session
 const MAX_CONCURRENT = 4;
 const FETCH_TIMEOUT_MS = 12000;
 const MAX_TEXT_LEN = 20000; // per page slice to keep memory small
@@ -109,30 +109,32 @@ async function crawl(startUrl) {
   const index = pageIndex.get(scopeKey);
 
   const queue = [startUrl];
-  const visited = new Set(index.keys()); // keep already indexed to avoid re-fetch
+  const visited = new Set(); // start fresh for each crawl session
   let active = 0;
+  let pagesThisSession = 0;
 
   return new Promise((resolve) => {
     function maybeDone() {
-      if ((queue.length === 0 && active === 0) || visited.size >= MAX_PAGES) {
-        console.log('[crawler] Done. Indexed pages:', index.size, 'scope', scopeKey);
+      if ((queue.length === 0 && active === 0) || pagesThisSession >= MAX_PAGES_PER_CRAWL) {
+        console.log('[crawler] Done. Indexed pages this session:', pagesThisSession, 'total in scope:', index.size, 'scope', scopeKey);
         resolve({ pages: index.size, scopeKey });
       }
     }
 
     async function worker() {
-      while (queue.length && visited.size < MAX_PAGES) {
+      while (queue.length && pagesThisSession < MAX_PAGES_PER_CRAWL) {
         const url = queue.shift();
-        if (!url || visited.has(url)) continue;
+        if (!url || visited.has(url) || index.has(url)) continue; // skip if already indexed
         visited.add(url);
         active++;
         const page = await fetchPage(url);
         if (page) {
           index.set(url, { title: page.title, text: page.text, url, ts: Date.now() });
-          console.log('[crawler] Indexed:', url, '| title:', page.title || '(no title)', '| links:', page.links.length, '| text chars:', page.text.length);
+          pagesThisSession++;
+          console.log('[crawler] Indexed:', url, '| title:', page.title || '(no title)', '| links:', page.links.length, '| text chars:', page.text.length, '| session:', pagesThisSession);
           let enq = 0;
           for (const link of page.links) {
-            if (inScope(link, scope) && !visited.has(link)) {
+            if (inScope(link, scope) && !visited.has(link) && !index.has(link)) {
               queue.push(link);
               enq++;
             }
@@ -169,6 +171,32 @@ function buildTextFragment(text, query) {
   const encoded = encodeURIComponent(frag);
   return `#:~:text=${encoded}`;
 }
+
+// Reset crawler when navigating to a new page
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' && tab.url) {
+    console.log('[crawler] Tab updated:', tab.url);
+    const newScopeKey = makeScopeKey(tab.url);
+    
+    // Clear current crawl if it's for a different scope
+    if (currentCrawl && currentCrawl.scopeKey !== newScopeKey) {
+      console.log('[crawler] Resetting crawl for new scope:', newScopeKey);
+      currentCrawl = null;
+    }
+    
+    // Auto-start crawling for the new page
+    if (newScopeKey && (!currentCrawl || currentCrawl.scopeKey !== newScopeKey)) {
+      console.log('[crawler] Auto-starting crawl for:', tab.url);
+      crawl(tab.url).then((res) => {
+        if (currentCrawl && currentCrawl.scopeKey === newScopeKey) {
+          currentCrawl = null;
+        }
+        return res;
+      });
+      currentCrawl = { scopeKey: newScopeKey, promise: crawl(tab.url) };
+    }
+  }
+});
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg !== 'object') return;

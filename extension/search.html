@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quick Search Results</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f8f9fa;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .header {
+      background: #6c8cff;
+      color: white;
+      padding: 20px;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 24px;
+      font-weight: 500;
+    }
+    .query {
+      margin-top: 8px;
+      opacity: 0.9;
+      font-size: 16px;
+    }
+    .results {
+      padding: 20px;
+    }
+    .result {
+      padding: 16px;
+      border-bottom: 1px solid #eee;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    .result:hover {
+      background: #f8f9fa;
+    }
+    .result:last-child {
+      border-bottom: none;
+    }
+    .result-title {
+      font-size: 18px;
+      font-weight: 500;
+      color: #1a0dab;
+      margin-bottom: 4px;
+    }
+    .result-url {
+      font-size: 14px;
+      color: #006621;
+      margin-bottom: 8px;
+    }
+    .result-snippet {
+      font-size: 14px;
+      color: #545454;
+      line-height: 1.4;
+    }
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+    .no-results {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+    .highlight {
+      background: #ffe6a7;
+      padding: 0 2px;
+      border-radius: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Quick Search Results</h1>
+      <div class="query" id="queryDisplay"></div>
+    </div>
+    <div class="results" id="resultsContainer">
+      <div class="loading">Loading results...</div>
+    </div>
+  </div>
+  <script src="search.js"></script>
+</body>
+</html> 
